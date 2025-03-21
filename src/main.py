@@ -1,24 +1,25 @@
+import math
 from collections import defaultdict
 
-def process_file(input_file="testcase.txt", output_file="output.txt"):
-    city_data = defaultdict(lambda: [float('inf'), 0, float('-inf'), 0])  # min, sum, max, count
-    
-    with open(input_file, "r") as f:
-        for line in f:
-            city, score = line.strip().split(";")
-            score = float(score)
-            
-            city_stats = city_data[city]
-            city_stats[0] = min(city_stats[0], score)  # min
-            city_stats[1] += score                     # sum
-            city_stats[2] = max(city_stats[2], score)  # max
-            city_stats[3] += 1                         # count
-    
-    with open(output_file, "w") as f:
-        for city in sorted(city_data.keys()):
-            min_val, total, max_val, count = city_data[city]
-            mean_val = total / count
-            f.write(f"{city}={min_val:.1f}/{mean_val:.1f}/{max_val:.1f}\n")
+def process_file(input_file_name="testcase.txt", output_file_name="output.txt"):
+    values = defaultdict(lambda: [float('inf'), float('-inf'), 0, 0])
+
+    with open(input_file_name, "r") as input_file:
+        for line in input_file:
+            key, value = line.strip().split(';')  
+            value = float(value) 
+
+            values[key][0] = min(values[key][0], value) 
+            values[key][1] = max(values[key][1], value) 
+            values[key][2] += value                     
+            values[key][3] += 1                         
+
+    with open(output_file_name, "w") as output_file:
+        for key in sorted(values.keys()):
+            minX = math.ceil(values[key][0] * 10) / 10
+            meanX = math.ceil((values[key][2] / values[key][3]) * 10) / 10 if values[key][3] > 0 else 0
+            maxX = math.ceil(values[key][1] * 10) / 10 
+            output_file.write(f"{key}={minX}/{meanX}/{maxX}\n")
 
 if __name__ == "__main__":
-    process_file()
+    process_file("testcase.txt", "output.txt")
