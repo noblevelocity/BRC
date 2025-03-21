@@ -1,94 +1,109 @@
 import math
 import concurrent.futures
+import multiprocessing
 import os
+import mmap
 
-def process_chunk(chunk_lines):
+def process_chunk(file_path, start_pos, end_pos):
     local_min = {}
     local_max = {}
     local_sums = {}
     local_counts = {}
     
-    for line in chunk_lines:
-        parts = line.strip().split(';', 1)
-        if len(parts) != 2:
-            continue
+    with open(file_path, 'r') as f:
+        with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as mm:
+            mm.seek(start_pos)
             
-        key = parts[0]
-        try:
-            value = float(parts[1])
-        except ValueError:
-            continue
-            
-        try:
-            if value < local_min[key]: local_min[key] = value
-        except KeyError:
-            local_min[key] = value
-        
-        try:
-            if value > local_max[key]: local_max[key] = value
-        except KeyError:
-            local_max[key] = value
-        
-        try:
-            local_sums[key] += value
-            local_counts[key] += 1
-        except KeyError:
-            local_sums[key] = value
-            local_counts[key] = 1
-            
+            current_pos = start_pos
+            while current_pos < end_pos:
+                line = mm.readline()
+                current_pos = mm.tell()
+                
+                if not line:
+                    break
+                    
+                try:
+                    parts = line.decode().strip().split(';', 1)
+                    key = parts[0]
+                    value = float(parts[1])
+                    
+                    if key in local_min:
+                        if value < local_min[key]:
+                            local_min[key] = value
+                    else:
+                        local_min[key] = value
+                        
+                    if key in local_max:
+                        if value > local_max[key]:
+                            local_max[key] = value
+                    else:
+                        local_max[key] = value
+                        
+                    if key in local_sums:
+                        local_sums[key] += value
+                        local_counts[key] += 1
+                    else:
+                        local_sums[key] = value
+                        local_counts[key] = 1
+                except:
+                    continue
+    
     return local_min, local_max, local_sums, local_counts
 
-def merge_results(results):
-    final_min = {}
-    final_max = {}
-    final_sums = {}
-    final_counts = {}
+def get_file_chunks(file_path, num_chunks):
+    file_size = os.path.getsize(file_path)
+    chunk_size = file_size // num_chunks
     
-    for min_dict, max_dict, sums_dict, counts_dict in results:
-        for key, value in min_dict.items():
-            if key in final_min:
-                final_min[key] = min(final_min[key], value)
-            else:
-                final_min[key] = value
+    chunks = []
+    with open(file_path, 'r') as f:
+        with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as mm:
+            for i in range(num_chunks):
+                start_pos = i * chunk_size
                 
-        for key, value in max_dict.items():
-            if key in final_max:
-                final_max[key] = max(final_max[key], value)
-            else:
-                final_max[key] = value
+                end_pos = file_size if i == num_chunks - 1 else (i + 1) * chunk_size
                 
-        for key, value in sums_dict.items():
-            final_sums[key] = final_sums.get(key, 0) + value
-            final_counts[key] = final_counts.get(key, 0) + counts_dict[key]
-            
-    return final_min, final_max, final_sums, final_counts
+                if i < num_chunks - 1:
+                    mm.seek(end_pos)
+                    mm.readline()
+                    end_pos = mm.tell()
+                
+                chunks.append((start_pos, end_pos))
+    
+    return chunks
 
-def main(input_file_name="testcase.txt", output_file_name="output.txt", num_workers=4):
-    with open(input_file_name, "r") as f:
-        all_lines = f.readlines()
+def main(input_file="testcase.txt", output_file="output.txt"):
+    num_workers = min(4, multiprocessing.cpu_count())
     
-    total_lines = len(all_lines)
-    chunk_size = max(1, total_lines // num_workers)
-    
-    chunks = [all_lines[i:i + chunk_size] for i in range(0, total_lines, chunk_size)]
+    chunks = get_file_chunks(input_file, num_workers)
     
     results = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
-        futures = [executor.submit(process_chunk, chunk) for chunk in chunks]
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
+        futures = [executor.submit(process_chunk, input_file, start, end) for start, end in chunks]
         for future in concurrent.futures.as_completed(futures):
             results.append(future.result())
     
-    min_values, max_values, sums, counts = merge_results(results)
+    min_values = {}
+    max_values = {}
+    sum_values = {}
+    count_values = {}
     
-    output_lines = []
-    for key in sorted(min_values.keys()):
-        min_temp = math.ceil(min_values[key] * 10) / 10
-        mean_temp = math.ceil((sums[key] / counts[key]) * 10) / 10
-        max_temp = math.ceil(max_values[key] * 10) / 10
-        output_lines.append(f"{key}={min_temp}/{mean_temp}/{max_temp}\n")
+    for mins, maxs, sums, counts in results:
+        for key, value in mins.items():
+            min_values[key] = min(min_values.get(key, float('inf')), value)
+            
+        for key, value in maxs.items():
+            max_values[key] = max(max_values.get(key, float('-inf')), value)
+            
+        for key, value in sums.items():
+            sum_values[key] = sum_values.get(key, 0) + value
+            count_values[key] = count_values.get(key, 0) + counts[key]
     
-    with open(output_file_name, "w") as f:
-        f.writelines(output_lines)
+    with open(output_file, 'w') as f:
+        for key in sorted(min_values.keys()):
+            min_temp = math.ceil(min_values[key] * 10) / 10
+            mean_temp = math.ceil((sum_values[key] / count_values[key]) * 10) / 10
+            max_temp = math.ceil(max_values[key] * 10) / 10
+            f.write(f"{key}={min_temp}/{mean_temp}/{max_temp}\n")
 
 if __name__ == "__main__":
-    main(num_workers=4)
+    main()
