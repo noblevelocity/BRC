@@ -22,7 +22,13 @@ def process_chunk(file_path, start_pos, end_pos):
                     
                 try:
                     parts = line.decode().strip().split(';', 1)
-                    key = parts[0]
+                    if len(parts) < 2:
+                        continue  # Skip malformed lines
+                        
+                    key = parts[0].strip()  # Strip whitespace from key
+                    if not key:  # Skip empty keys
+                        continue
+                        
                     value = float(parts[1])
                     
                     if key in results:
@@ -36,7 +42,7 @@ def process_chunk(file_path, start_pos, end_pos):
                     else:
                         # Initialize with [min, max, sum, count]
                         results[key] = [value, value, value, 1]
-                except:
+                except Exception as e:
                     continue
     
     return results
@@ -83,6 +89,25 @@ def main(input_file="testcase.txt", output_file="output.txt"):
             else:
                 merged[key] = values.copy()
     
+    # Add debugging information
+    print(f"Number of cities: {len(merged.keys())}")
+    
+    # Identify potential duplicate cities with slight variations
+    city_lower = {}
+    duplicates = []
+    for city in sorted(merged.keys()):
+        city_norm = city.lower()
+        if city_norm in city_lower:
+            duplicates.append((city, city_lower[city_norm]))
+        else:
+            city_lower[city_norm] = city
+    
+    if duplicates:
+        print("Potential duplicate cities found:")
+        for city, existing in duplicates:
+            print(f"  '{city}' and '{existing}'")
+    
+    # Write output
     with open(output_file, 'w') as f:
         for key in sorted(merged.keys()):
             min_temp = math.ceil(merged[key][0] * 10) / 10
